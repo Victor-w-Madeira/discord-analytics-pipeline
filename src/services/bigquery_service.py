@@ -29,39 +29,71 @@ class BigQueryService:
             await self._update_member_fields(updates_df)
     
     async def _upsert_members(self, members_df: pd.DataFrame):
-        """Upsert member data using MERGE statement."""
+        """Upsert member data using MERGE statement with safe parameters."""
         table_id = self._get_table_id('dim_member')
         
         try:
-            # Prepare data
-            members_df = self._prepare_member_data(members_df)
+            # Prepare data (sem escape manual)
+            members_df = self._prepare_member_data_safe(members_df)
             
-            # Process each member with MERGE query
+            # Process each member with parameterized MERGE query
             for _, row in members_df.iterrows():
-                merge_query = self._build_member_merge_query(table_id, row)
-                self.client.query(merge_query).result()
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("user_id", "STRING", str(row['user_id'])),
+                        bigquery.ScalarQueryParameter("user_name", "STRING", str(row['user_name'])),
+                        bigquery.ScalarQueryParameter("display_name", "STRING", str(row['display_name'])),
+                        bigquery.ScalarQueryParameter("is_bot", "BOOL", bool(row['is_bot'])),
+                        bigquery.ScalarQueryParameter("is_booster", "BOOL", bool(row['is_booster'])),
+                        bigquery.ScalarQueryParameter("role", "STRING", str(row['role'])),
+                        bigquery.ScalarQueryParameter("joined_at", "TIMESTAMP", row['joined_at']),
+                        bigquery.ScalarQueryParameter("status", "STRING", str(row['status'])),
+                        bigquery.ScalarQueryParameter("updated_at", "TIMESTAMP", row['updated_at']),
+                    ]
+                )
+                
+                merge_query = self._build_safe_member_merge_query(table_id)
+                query_job = self.client.query(merge_query, job_config=job_config)
+                query_job.result()
             
-            logger.info(f"Successfully updated {len(members_df)} members")
+            logger.info(f"Successfully updated {len(members_df)} members using safe parameters")
             
         except Exception as e:
             logger.error(f"Error updating members: {e}")
             raise
     
     async def _update_member_fields(self, updates_df: pd.DataFrame):
-        """Update specific member fields."""
+        """Update specific member fields using safe parameters."""
         table_id = self._get_table_id('dim_member')
         
         try:
             for _, row in updates_df.iterrows():
+                # Validar coluna (whitelist de segurança)
+                allowed_columns = ['user_name', 'display_name', 'status', 'role', 'is_booster']
+                if row['column'] not in allowed_columns:
+                    logger.warning(f"Attempted to update non-whitelisted column: {row['column']}")
+                    continue
+                
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("new_value", "STRING", str(row['new_value'])),
+                        bigquery.ScalarQueryParameter("updated_at", "TIMESTAMP", row['updated_at']),
+                        bigquery.ScalarQueryParameter("user_id", "STRING", str(row['user_id'])),
+                    ]
+                )
+                
+                # Nome da coluna não pode ser parametrizado, mas foi validado acima
                 update_query = f"""
                 UPDATE `{table_id}`
-                SET {row['column']} = '{row['new_value']}',
-                    updated_at = TIMESTAMP('{row['updated_at']}')
-                WHERE user_id = '{row['user_id']}'
+                SET {row['column']} = @new_value,
+                    updated_at = @updated_at
+                WHERE user_id = @user_id
                 """
-                self.client.query(update_query).result()
+                
+                query_job = self.client.query(update_query, job_config=job_config)
+                query_job.result()
             
-            logger.info(f"Successfully updated {len(updates_df)} member fields")
+            logger.info(f"Successfully updated {len(updates_df)} member fields using safe parameters")
             
         except Exception as e:
             logger.error(f"Error updating member fields: {e}")
@@ -204,36 +236,33 @@ class BigQueryService:
             self.client.delete_table(temp_table_id, not_found_ok=True)
             raise
     
-    def _prepare_member_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Prepare member data for BigQuery insertion."""
+    def _prepare_member_data_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare member data without manual escaping."""
         df = df.copy()
         
         # Convert timestamps
         df['updated_at'] = pd.to_datetime(df['updated_at'])
         df['joined_at'] = pd.to_datetime(df['joined_at'])
         
-        # Escape quotes in string fields
-        string_columns = ['user_name', 'display_name', 'role']
-        for col in string_columns:
-            if col in df.columns:
-                df[col] = df[col].str.replace("'", "\\'")
+        # Não mais escape manual - BigQuery parameters fazem isso automaticamente
+        # Removido: df[col] = df[col].str.replace("'", "\\'")
         
         return df
     
-    def _build_member_merge_query(self, table_id: str, row: pd.Series) -> str:
-        """Build MERGE query for member data."""
+    def _build_safe_member_merge_query(self, table_id: str) -> str:
+        """Build safe MERGE query using parameters."""
         return f"""
         MERGE `{table_id}` T
         USING (SELECT
-                '{row['user_id']}' AS user_id,
-                '{row['user_name']}' AS user_name,
-                '{row['display_name']}' AS display_name,
-                CAST({row['is_bot']} AS BOOLEAN) AS is_bot,
-                CAST({row['is_booster']} AS BOOLEAN) AS is_booster,
-                '{row['role']}' AS role,
-                TIMESTAMP('{row['joined_at']}') AS joined_at,
-                '{row['status']}' AS status,
-                TIMESTAMP('{row['updated_at']}') AS updated_at
+                @user_id AS user_id,
+                @user_name AS user_name,
+                @display_name AS display_name,
+                @is_bot AS is_bot,
+                @is_booster AS is_booster,
+                @role AS role,
+                @joined_at AS joined_at,
+                @status AS status,
+                @updated_at AS updated_at
             ) S
         ON T.user_id = S.user_id
         WHEN MATCHED THEN
