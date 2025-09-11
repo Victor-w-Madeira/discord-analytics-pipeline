@@ -1,14 +1,37 @@
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
 
+def validate_required_env_vars():
+    """Validate that all required environment variables are set."""
+    required_vars = {
+        'DISCORD_BOT_TOKEN': 'Discord bot token is required',
+        'TARGET_SERVER_ID': 'Target Discord server ID is required',
+        'BIGQUERY_PROJECT_ID': 'BigQuery project ID is required'
+    }
+    
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(f"  - {var}: {description}")
+    
+    if missing_vars:
+        print("❌ Missing required environment variables:")
+        print("\n".join(missing_vars))
+        print("\n💡 Please check your .env file or environment configuration.")
+        sys.exit(1)
+
+# Validate before loading
+validate_required_env_vars()
+
 # Bot Configuration
 BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-TARGET_SERVER_ID = int(os.getenv('TARGET_SERVER_ID', '1116803230643527710'))
+TARGET_SERVER_ID = int(os.getenv('TARGET_SERVER_ID'))
 
-# BigQuery Configuration
-PROJECT_ID = os.getenv('BIGQUERY_PROJECT_ID', 'langflow-data-project')
+# BigQuery Configuration  
+PROJECT_ID = os.getenv('BIGQUERY_PROJECT_ID')
 DATASET_ID = os.getenv('BIGQUERY_DATASET_ID', 'discord_data')
 
 # Service Account Configuration
