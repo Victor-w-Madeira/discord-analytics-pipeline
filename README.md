@@ -39,6 +39,7 @@ discord-analytics-bot/
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
+├── .dockerignore
 ├── README.md
 ├── Dockerfile
 └── docker-compose.yml
@@ -72,31 +73,17 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. Run the bot:
-```bash
-cd src
-python main.py
-```
-
-### Docker Setup
-
-1. Build and run with docker-compose:
-```bash
-docker-compose up -d
-```
-
-## Configuration
+### Configuration
 
 All configuration is handled through environment variables. See `.env.example` for all available options.
 
-### Required Environment Variables
+#### Required Environment Variables
 
 - `DISCORD_BOT_TOKEN`: Your Discord bot token
 - `TARGET_SERVER_ID`: Discord server ID to monitor
 - `BIGQUERY_PROJECT_ID`: Google Cloud project ID
-- `GOOGLE_APPLICATION_CREDENTIALS`: Path to service account JSON file
 
-### Google Cloud Authentication
+#### Google Cloud Authentication
 
 You have two options for authentication:
 
@@ -108,6 +95,110 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 2. **Service Account JSON** (for containerized environments):
 ```bash
 export GOOGLE_SERVICE_ACCOUNT_INFO='{"type":"service_account","project_id":"..."}'
+```
+
+## Deployment
+
+### 🐍 Local Development
+
+```bash
+cd src
+python main.py
+```
+
+### 🐳 Docker Deployment (Recommended)
+
+#### Prerequisites
+- Docker and Docker Compose installed
+- Configured `.env` file with your credentials
+
+#### Quick Start
+
+1. **Setup environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+2. **Build and run:**
+   ```bash
+   docker-compose up --build -d
+   ```
+
+3. **View logs:**
+   ```bash
+   docker-compose logs -f discord-analytics-bot
+   ```
+
+#### Docker Commands
+
+**Daily Operations:**
+```bash
+# Start containers
+docker-compose up -d
+
+# Stop containers  
+docker-compose down
+
+# Restart bot
+docker-compose restart discord-analytics-bot
+
+# View status
+docker-compose ps
+```
+
+**Logs and Monitoring:**
+```bash
+# View all logs
+docker-compose logs discord-analytics-bot
+
+# Follow logs in real-time
+docker-compose logs -f discord-analytics-bot
+
+# Last 100 lines
+docker-compose logs --tail=100 discord-analytics-bot
+```
+
+**Maintenance:**
+```bash
+# Update after code changes
+docker-compose down
+docker-compose build --no-cache  
+docker-compose up -d
+
+# Clean up old images
+docker system prune -f
+```
+
+#### Log Files
+Container logs are persisted in `./logs/` directory:
+```
+logs/
+├── discord-bot.log
+└── error.log
+```
+
+#### Health Monitoring
+The container includes automatic health checks. Monitor with:
+```bash
+docker stats discord-analytics-pipeline
+```
+
+#### Environment Variables for Production
+```bash
+# Required
+DISCORD_BOT_TOKEN=your_actual_token
+TARGET_SERVER_ID=your_discord_server_id
+BIGQUERY_PROJECT_ID=your_bigquery_project_id
+GOOGLE_SERVICE_ACCOUNT_INFO='{"type":"service_account",...}'
+
+# Optional (with defaults)
+BIGQUERY_DATASET_ID=discord_data
+MEMBER_UPDATE_INTERVAL=60
+MESSAGE_UPDATE_INTERVAL=60
+VOICE_UPDATE_INTERVAL=60
+THREAD_UPDATE_INTERVAL=720
+PRESENCE_UPDATE_INTERVAL=1440
 ```
 
 ## Architecture
@@ -147,43 +238,6 @@ The bot includes comprehensive logging:
 - **DEBUG**: Detailed event processing
 - **ERROR**: Error conditions with context
 - **Execution timing**: Performance monitoring for BigQuery operations
-
-## Deployment
-
-### Local Development
-```bash
-cd src
-python main.py
-```
-
-### Docker Deployment
-```bash
-# Build and run
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
-```
-
-### Environment Variables for Production
-```bash
-# Required
-DISCORD_BOT_TOKEN=your_actual_token
-TARGET_SERVER_ID=1116803230643527710
-BIGQUERY_PROJECT_ID=langflow-data-project
-GOOGLE_SERVICE_ACCOUNT_INFO='{"type":"service_account",...}'
-
-# Optional (with defaults)
-BIGQUERY_DATASET_ID=discord_data
-MEMBER_UPDATE_INTERVAL=60
-MESSAGE_UPDATE_INTERVAL=60
-VOICE_UPDATE_INTERVAL=60
-THREAD_UPDATE_INTERVAL=720
-PRESENCE_UPDATE_INTERVAL=1440
-```
 
 ## Error Handling
 
