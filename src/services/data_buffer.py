@@ -45,13 +45,19 @@ class DataBuffer:
         """Add member data to buffer."""
         async with self._lock:
             new_data = pd.DataFrame([member_data])
-            self.members_buffer = pd.concat([self.members_buffer, new_data], ignore_index=True)
+            if self.members_buffer.empty:
+                self.members_buffer = new_data
+            else:
+                self.members_buffer = pd.concat([self.members_buffer, new_data], ignore_index=True)
     
     async def add_member_update(self, update_data: Dict[str, Any]):
         """Add member update to buffer."""
         async with self._lock:
             new_data = pd.DataFrame([update_data])
-            self.member_updates_buffer = pd.concat([self.member_updates_buffer, new_data], ignore_index=True)
+            if self.member_updates_buffer.empty:
+                self.member_updates_buffer = new_data
+            else:
+                self.member_updates_buffer = pd.concat([self.member_updates_buffer, new_data], ignore_index=True)
     
     async def add_message_count(self, message_data: Dict[str, Any]):
         """Add or update message count in buffer."""
@@ -71,13 +77,19 @@ class DataBuffer:
                 self.message_counts_buffer.loc[mask, 'message_count'] += 1
             else:
                 new_data = pd.DataFrame([{**message_data, 'message_count': 1}])
-                self.message_counts_buffer = pd.concat([self.message_counts_buffer, new_data], ignore_index=True)
+                if self.message_counts_buffer.empty:
+                    self.message_counts_buffer = new_data
+                else:
+                    self.message_counts_buffer = pd.concat([self.message_counts_buffer, new_data], ignore_index=True)
     
     async def add_message_detail(self, message_data: Dict[str, Any]):
         """Add message detail to buffer."""
         async with self._lock:
             new_data = pd.DataFrame([message_data])
-            self.message_details_buffer = pd.concat([self.message_details_buffer, new_data], ignore_index=True)
+            if self.message_details_buffer.empty:
+                self.message_details_buffer = new_data
+            else:
+                self.message_details_buffer = pd.concat([self.message_details_buffer, new_data], ignore_index=True)
     
     async def add_voice_activity(self, voice_data: Dict[str, Any]):
         """Add or update voice activity in buffer."""
@@ -98,19 +110,28 @@ class DataBuffer:
                 self.voice_buffer.loc[mask, 'duration_seconds'] += duration
             else:
                 new_data = pd.DataFrame([voice_data])
-                self.voice_buffer = pd.concat([self.voice_buffer, new_data], ignore_index=True)
+                if self.voice_buffer.empty:
+                    self.voice_buffer = new_data
+                else:
+                    self.voice_buffer = pd.concat([self.voice_buffer, new_data], ignore_index=True)
     
     async def add_thread(self, thread_data: Dict[str, Any]):
         """Add thread data to buffer."""
         async with self._lock:
             new_data = pd.DataFrame([thread_data])
-            self.thread_buffer = pd.concat([self.thread_buffer, new_data], ignore_index=True)
+            if self.thread_buffer.empty:
+                self.thread_buffer = new_data
+            else:
+                self.thread_buffer = pd.concat([self.thread_buffer, new_data], ignore_index=True)
     
     async def add_presence_log(self, presence_data: Dict[str, Any]):
         """Add presence log to buffer."""
         async with self._lock:
             new_data = pd.DataFrame([presence_data])
-            self.presence_buffer = pd.concat([self.presence_buffer, new_data], ignore_index=True)
+            if self.presence_buffer.empty:
+                self.presence_buffer = new_data
+            else:
+                self.presence_buffer = pd.concat([self.presence_buffer, new_data], ignore_index=True)
     
     # Getter methods
     def get_members_data(self) -> pd.DataFrame:
