@@ -68,7 +68,7 @@ class BigQueryService:
         
         try:
             for _, row in updates_df.iterrows():
-                # Validar coluna (whitelist de segurança)
+                # Validate column (security whitelist)
                 allowed_columns = ['user_name', 'display_name', 'status', 'role', 'is_booster']
                 if row['column'] not in allowed_columns:
                     logger.warning(f"Attempted to update non-whitelisted column: {row['column']}")
@@ -242,11 +242,7 @@ class BigQueryService:
         
         # Convert timestamps
         df['updated_at'] = pd.to_datetime(df['updated_at'])
-        df['joined_at'] = pd.to_datetime(df['joined_at'])
-        
-        # Não mais escape manual - BigQuery parameters fazem isso automaticamente
-        # Removido: df[col] = df[col].str.replace("'", "\\'")
-        
+        df['joined_at'] = pd.to_datetime(df['joined_at'])        
         return df
     
     def _build_safe_member_merge_query(self, table_id: str) -> str:
