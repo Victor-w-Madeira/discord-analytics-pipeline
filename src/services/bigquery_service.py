@@ -2,7 +2,7 @@ import logging
 import pandas as pd
 from google.cloud import bigquery
 from config.bigquery_config import get_bigquery_client, SCHEMAS
-from config.settings import PROJECT_ID, DATASET_ID
+from config.settings import PROJECT_ID, DATASET_ID, get_table_name
 from utils.helpers import log_execution_time
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,9 @@ class BigQueryService:
         self.project_id = PROJECT_ID
         self.dataset_id = DATASET_ID
     
-    def _get_table_id(self, table_name: str) -> str:
-        """Get full table ID."""
+    def _get_table_id(self, table_key: str) -> str:
+        """Get full table ID with optional prefix."""
+        table_name = get_table_name(table_key)
         return f"{self.project_id}.{self.dataset_id}.{table_name}"
     
     @log_execution_time
@@ -30,7 +31,7 @@ class BigQueryService:
     
     async def _upsert_members(self, members_df: pd.DataFrame):
         """Upsert member data using MERGE statement with safe parameters."""
-        table_id = self._get_table_id('dim_member')
+        table_id = self._get_table_id('members')
         
         try:
             # Prepare data (sem escape manual)
@@ -64,7 +65,7 @@ class BigQueryService:
     
     async def _update_member_fields(self, updates_df: pd.DataFrame):
         """Update specific member fields using safe parameters."""
-        table_id = self._get_table_id('dim_member')
+        table_id = self._get_table_id('members')
         
         try:
             for _, row in updates_df.iterrows():
@@ -106,7 +107,7 @@ class BigQueryService:
             logger.info("No message count data to update")
             return
         
-        await self._merge_aggregated_data(message_df, 'message_count', 'message_count')
+        await self._merge_aggregated_data(message_df, 'message_counts', 'message_count')
     
     @log_execution_time
     async def update_message_details(self, message_df: pd.DataFrame):
@@ -115,7 +116,7 @@ class BigQueryService:
             logger.info("No message detail data to update")
             return
         
-        table_id = self._get_table_id('messages')
+        table_id = self._get_table_id('message_details')
         
         try:
             # Ensure timestamp format
@@ -144,7 +145,7 @@ class BigQueryService:
             logger.info("No voice activity data to update")
             return
         
-        await self._merge_aggregated_data(voice_df, 'voice_channel', 'duration_seconds')
+        await self._merge_aggregated_data(voice_df, 'voice_activity', 'duration_seconds')
     
     @log_execution_time
     async def update_threads(self, thread_df: pd.DataFrame):
@@ -153,7 +154,7 @@ class BigQueryService:
             logger.info("No thread data to update")
             return
         
-        table_id = self._get_table_id('thread')
+        table_id = self._get_table_id('threads')
         
         try:
             job_config = bigquery.LoadJobConfig(
@@ -182,7 +183,7 @@ class BigQueryService:
         # Remove duplicates by user_id
         presence_df = presence_df.drop_duplicates(subset=['user_id'])
         
-        table_id = self._get_table_id('daily_user_logins')
+        table_id = self._get_table_id('presence_logs')
         
         try:
             job_config = bigquery.LoadJobConfig(
@@ -201,9 +202,9 @@ class BigQueryService:
             logger.error(f"Error updating presence logs: {e}")
             raise
     
-    async def _merge_aggregated_data(self, df: pd.DataFrame, table_name: str, aggregate_column: str):
+    async def _merge_aggregated_data(self, df: pd.DataFrame, table_key: str, aggregate_column: str):
         """Generic method for merging aggregated data."""
-        table_id = self._get_table_id(table_name)
+        table_id = self._get_table_id(table_key)
         temp_table_id = f"{table_id}_temp"
         
         try:
@@ -228,10 +229,10 @@ class BigQueryService:
             # Clean up temporary table
             self.client.delete_table(temp_table_id, not_found_ok=True)
             
-            logger.info(f"Successfully merged {len(df)} records to {table_name}")
+            logger.info(f"Successfully merged {len(df)} records to {table_key}")
             
         except Exception as e:
-            logger.error(f"Error merging data to {table_name}: {e}")
+            logger.error(f"Error merging data to {table_key}: {e}")
             # Clean up temporary table on error
             self.client.delete_table(temp_table_id, not_found_ok=True)
             raise

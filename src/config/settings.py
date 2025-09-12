@@ -43,3 +43,21 @@ MESSAGE_UPDATE_INTERVAL = int(os.getenv('MESSAGE_UPDATE_INTERVAL', '60'))
 VOICE_UPDATE_INTERVAL = int(os.getenv('VOICE_UPDATE_INTERVAL', '60'))
 THREAD_UPDATE_INTERVAL = int(os.getenv('THREAD_UPDATE_INTERVAL', '720'))  # 12 hours
 PRESENCE_UPDATE_INTERVAL = int(os.getenv('PRESENCE_UPDATE_INTERVAL', '1440'))  # 24 hours
+
+# Table prefix for environment separation (Optional)
+TABLE_PREFIX = os.getenv('BIGQUERY_TABLE_PREFIX', '')
+
+# Default table names
+DEFAULT_TABLES = {
+    'members': 'dim_member',
+    'message_counts': 'message_count', 
+    'message_details': 'messages',
+    'voice_activity': 'voice_channel',
+    'threads': 'thread',
+    'presence_logs': 'daily_user_logins'
+}
+
+def get_table_name(table_key: str) -> str:
+    """Get table name with optional environment prefix."""
+    base_name = DEFAULT_TABLES[table_key]
+    return f"{TABLE_PREFIX}{base_name}" if TABLE_PREFIX else base_name

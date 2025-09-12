@@ -4,7 +4,14 @@ import logging
 from discord.ext import commands, tasks
 from datetime import datetime
 
-from config.settings import TARGET_SERVER_ID
+from config.settings import (
+    TARGET_SERVER_ID,
+    MEMBER_UPDATE_INTERVAL,
+    MESSAGE_UPDATE_INTERVAL,
+    VOICE_UPDATE_INTERVAL,
+    THREAD_UPDATE_INTERVAL,
+    PRESENCE_UPDATE_INTERVAL
+)
 from handlers import (
     MessageHandler, 
     MemberHandler, 
@@ -61,34 +68,49 @@ class DiscordAnalyticsBot(commands.Bot):
         for guild in self.guilds:
             logger.info(f'Connected to server: {guild.name} (ID: {guild.id})')
         
+        # Log the configured intervals
+        logger.info(f"Task intervals configured:")
+        logger.info(f"  - Members: {MEMBER_UPDATE_INTERVAL} minutes")
+        logger.info(f"  - Messages: {MESSAGE_UPDATE_INTERVAL} minutes")
+        logger.info(f"  - Voice: {VOICE_UPDATE_INTERVAL} minutes")
+        logger.info(f"  - Threads: {THREAD_UPDATE_INTERVAL} minutes")
+        logger.info(f"  - Presence: {PRESENCE_UPDATE_INTERVAL} minutes")
+        
         # Start periodic tasks
         await self._start_periodic_tasks()
     
     async def _start_periodic_tasks(self):
         """Start all periodic update tasks with staggered delays."""
+        # Start tasks with configured intervals
+        self.log_update_cycle.change_interval(minutes=60)
         self.log_update_cycle.start()
         await asyncio.sleep(60)
         
+        self.update_members.change_interval(minutes=MEMBER_UPDATE_INTERVAL)
         self.update_members.start()
         await asyncio.sleep(300)
         
+        self.update_messages.change_interval(minutes=MESSAGE_UPDATE_INTERVAL)
         self.update_messages.start()
         await asyncio.sleep(300)
         
+        self.update_voice_activity.change_interval(minutes=VOICE_UPDATE_INTERVAL)
         self.update_voice_activity.start()
         await asyncio.sleep(300)
         
+        self.update_threads.change_interval(minutes=THREAD_UPDATE_INTERVAL)
         self.update_threads.start()
         await asyncio.sleep(300)
         
+        self.update_presence_logs.change_interval(minutes=PRESENCE_UPDATE_INTERVAL)
         self.update_presence_logs.start()
     
-    @tasks.loop(minutes=60)
+    @tasks.loop()
     async def log_update_cycle(self):
         """Log periodic update cycle."""
         logger.info("Periodic update cycle started")
     
-    @tasks.loop(minutes=60)
+    @tasks.loop()
     async def update_members(self):
         """Update member data in BigQuery."""
         await self.bigquery_service.update_members(
@@ -97,7 +119,7 @@ class DiscordAnalyticsBot(commands.Bot):
         )
         self.data_buffer.clear_members_data()
     
-    @tasks.loop(minutes=60)
+    @tasks.loop()
     async def update_messages(self):
         """Update message data in BigQuery."""
         await self.bigquery_service.update_message_counts(
@@ -108,7 +130,7 @@ class DiscordAnalyticsBot(commands.Bot):
         )
         self.data_buffer.clear_message_data()
     
-    @tasks.loop(minutes=60)
+    @tasks.loop()
     async def update_voice_activity(self):
         """Update voice activity data in BigQuery."""
         await self.bigquery_service.update_voice_activity(
@@ -116,7 +138,7 @@ class DiscordAnalyticsBot(commands.Bot):
         )
         self.data_buffer.clear_voice_data()
     
-    @tasks.loop(hours=12)
+    @tasks.loop()
     async def update_threads(self):
         """Update thread data in BigQuery."""
         await self.bigquery_service.update_threads(
@@ -124,7 +146,7 @@ class DiscordAnalyticsBot(commands.Bot):
         )
         self.data_buffer.clear_thread_data()
     
-    @tasks.loop(hours=24)
+    @tasks.loop()
     async def update_presence_logs(self):
         """Update presence logs in BigQuery."""
         await self.bigquery_service.update_presence_logs(
