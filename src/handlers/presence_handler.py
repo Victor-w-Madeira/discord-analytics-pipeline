@@ -1,7 +1,5 @@
 import discord
-import pandas as pd
 import logging
-import asyncio
 from datetime import datetime, timezone
 from config.settings import TARGET_SERVER_ID
 
@@ -24,7 +22,7 @@ class PresenceHandler:
             # Detect transition from offline to online
             if before.status == discord.Status.offline and after.status == discord.Status.online:
                 presence_data = {
-                    'logged_at': pd.Timestamp.now(tz=timezone.utc),  # Mais explícito com timezone
+                    'logged_at': datetime.now(timezone.utc),  
                     'user_id': str(after.id),
                     'user_name': after.name
                 }
@@ -34,4 +32,4 @@ class PresenceHandler:
                 
         except Exception as e:
             logger.error(f"Error processing presence update for {after.id}: {e}")
-            # Opcional: Re-raise se quiser que falhas parem o bot
+            
