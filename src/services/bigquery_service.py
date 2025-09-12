@@ -34,7 +34,6 @@ class BigQueryService:
         table_id = self._get_table_id('members')
         
         try:
-            # Prepare data (sem escape manual)
             members_df = self._prepare_member_data_safe(members_df)
             
             # Process each member with parameterized MERGE query

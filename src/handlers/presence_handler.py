@@ -12,8 +12,7 @@ class PresenceHandler:
     
     def __init__(self, data_buffer):
         self.data_buffer = data_buffer
-        # Remoção do lock individual - DataBuffer já é thread-safe
-        # self.presence_lock = asyncio.Lock()  # Não necessário
+
     
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         """Handle presence status changes."""
@@ -36,4 +35,3 @@ class PresenceHandler:
         except Exception as e:
             logger.error(f"Error processing presence update for {after.id}: {e}")
             # Opcional: Re-raise se quiser que falhas parem o bot
-            # raise
