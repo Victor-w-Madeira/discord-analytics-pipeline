@@ -24,12 +24,6 @@ def log_execution_time(func):
             raise
     return wrapper
 
-def sanitize_string(text: str) -> str:
-    """Sanitize string for BigQuery insertion."""
-    if not text:
-        return ""
-    return text.replace("'", "\\'").replace('"', '\\"')
-
 def format_roles(roles: list) -> str:
     """Format Discord roles list to string."""
     return ", ".join([role.name for role in roles if role.name != "@everyone"])

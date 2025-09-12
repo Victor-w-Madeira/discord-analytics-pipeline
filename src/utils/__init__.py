@@ -1,4 +1,3 @@
-# src/utils/__init__.py
 """
 Utilities module for Discord Analytics Bot.
 
@@ -10,12 +9,10 @@ This module contains utility functions and decorators:
 
 from .helpers import (
     log_execution_time,
-    sanitize_string,
     format_roles
 )
 
 __all__ = [
-    'log_execution_time',
-    'sanitize_string', 
+    'log_execution_time', 
     'format_roles'
 ]
