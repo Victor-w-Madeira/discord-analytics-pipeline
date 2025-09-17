@@ -60,6 +60,29 @@ class DiscordAnalyticsBot(commands.Bot):
         self.add_listener(self.thread_handler.on_thread_create)
         self.add_listener(self.presence_handler.on_presence_update)
     
+    def _calculate_task_delays(self):
+        """Calculate appropriate delays between tasks based on intervals."""
+        # Encontra o menor intervalo entre todas as tarefas
+        intervals = [
+            MEMBER_UPDATE_INTERVAL,
+            MESSAGE_UPDATE_INTERVAL,
+            VOICE_UPDATE_INTERVAL,
+            THREAD_UPDATE_INTERVAL,
+            PRESENCE_UPDATE_INTERVAL
+        ]
+        min_interval = min(intervals)
+        
+        # Calcula delay apropriado baseado no menor intervalo
+        if min_interval <= 5:  # Para testes (≤ 5 minutos)
+            base_delay = 10  # 10 segundos entre tarefas
+        elif min_interval <= 15:  # Intervalos médios (≤ 15 minutos)  
+            base_delay = 30  # 30 segundos entre tarefas
+        else:  # Produção (≥ 16 minutos) - inclui o padrão de 60 min
+            base_delay = 300  # 5 minutos entre tarefas
+            
+        self.logger.logger.info(f"📊 Calculated task delay: {base_delay}s (based on min interval: {min_interval}min)")
+        return base_delay
+    
     async def on_ready(self):
         """Event triggered when bot is ready."""
         self.logger.bot_ready(self.user.name, len(self.guilds))
@@ -84,40 +107,69 @@ class DiscordAnalyticsBot(commands.Bot):
         await self._start_periodic_tasks()
     
     async def _start_periodic_tasks(self):
-        """Start all periodic update tasks with staggered delays."""
+        """Start all periodic update tasks with intelligent delays."""
         self.logger.logger.info("🔄 Starting periodic tasks...")
         
-        # Start log cycle first
-        self.log_update_cycle.change_interval(minutes=60)
-        self.log_update_cycle.start()
-        self.logger.logger.debug("Started heartbeat log cycle")
+        # Calculate appropriate delay between tasks
+        task_delay = self._calculate_task_delays()
         
-        # Stagger task starts to avoid BigQuery conflicts
+        # Start heartbeat log cycle (sempre 1 hora, independente dos outros intervalos)
+        heartbeat_interval = max(60, min(MEMBER_UPDATE_INTERVAL, MESSAGE_UPDATE_INTERVAL) * 10)
+        self.log_update_cycle.change_interval(minutes=heartbeat_interval)
+        self.log_update_cycle.start()
+        self.logger.logger.debug(f"Started heartbeat log cycle ({heartbeat_interval} min interval)")
+        
+        # Define tasks with their respective intervals and calculated delays
         tasks = [
-            ("update_members", MEMBER_UPDATE_INTERVAL, 60),
-            ("update_messages", MESSAGE_UPDATE_INTERVAL, 300),
-            ("update_voice_activity", VOICE_UPDATE_INTERVAL, 300),
-            ("update_threads", THREAD_UPDATE_INTERVAL, 300),
-            ("update_presence_logs", PRESENCE_UPDATE_INTERVAL, 300)
+            ("update_members", MEMBER_UPDATE_INTERVAL, task_delay * 0),      # Inicia imediatamente
+            ("update_messages", MESSAGE_UPDATE_INTERVAL, task_delay * 1),    # 1 delay
+            ("update_voice_activity", VOICE_UPDATE_INTERVAL, task_delay * 2), # 2 delays
+            ("update_threads", THREAD_UPDATE_INTERVAL, task_delay * 3),      # 3 delays
+            ("update_presence_logs", PRESENCE_UPDATE_INTERVAL, task_delay * 4) # 4 delays
         ]
         
+        # Log the schedule
+        self.logger.logger.info("📅 Task Schedule:")
         for task_name, interval, delay in tasks:
-            await asyncio.sleep(delay)
+            friendly_name = task_name.replace('update_', '').replace('_', ' ').title()
+            delay_str = f"{int(delay)}s" if delay < 60 else f"{int(delay/60)}m"
+            self.logger.logger.info(f"   • {friendly_name}: starts in {delay_str}, then every {interval}min")
+        
+        # Start tasks with calculated delays
+        for task_name, interval, delay in tasks:
+            if delay > 0:
+                self.logger.logger.debug(f"⏳ Waiting {int(delay)}s before starting {task_name}")
+                await asyncio.sleep(delay)
+            
             task = getattr(self, task_name)
             task.change_interval(minutes=interval)
             task.start()
-            self.logger.task_started(task_name, interval)
+            
+            friendly_name = task_name.replace('update_', '').replace('_', ' ').title()
+            self.logger.logger.info(f"✅ Started {friendly_name} (every {interval}min)")
         
-        self.logger.logger.info("✅ All periodic tasks started successfully")
+        self.logger.logger.info("🎯 All periodic tasks started successfully")
     
     @tasks.loop()
     async def log_update_cycle(self):
         """Log periodic heartbeat."""
-        self.logger.logger.debug("💓 Heartbeat - Bot is running normally")
+        # Mostra informações mais úteis no heartbeat
+        total_tasks = 5
+        active_tasks = sum(1 for task in [
+            self.update_members.is_running(),
+            self.update_messages.is_running(),
+            self.update_voice_activity.is_running(),
+            self.update_threads.is_running(),
+            self.update_presence_logs.is_running()
+        ] if task)
+        
+        self.logger.logger.info(f"💓 System Health: {active_tasks}/{total_tasks} tasks running")
     
     @tasks.loop()
     async def update_members(self):
         """Update member data in BigQuery."""
+        self.logger.logger.info("👥 Starting member data update process...")
+        
         try:
             members_data = self.data_buffer.get_members_data()
             updates_data = self.data_buffer.get_member_updates()
@@ -126,7 +178,7 @@ class DiscordAnalyticsBot(commands.Bot):
                 await self.bigquery_service.update_members(members_data, updates_data)
                 self.data_buffer.clear_members_data()
             else:
-                self.logger.logger.debug("No member data to process")
+                self.logger.logger.info("👥 Member update process completed - No data to load")
                 
         except Exception as e:
             self.logger.error("update members task", e)
@@ -134,6 +186,8 @@ class DiscordAnalyticsBot(commands.Bot):
     @tasks.loop()
     async def update_messages(self):
         """Update message data in BigQuery."""
+        self.logger.logger.info("💌 Starting message data update process...")
+        
         try:
             counts_data = self.data_buffer.get_message_counts()
             details_data = self.data_buffer.get_message_details()
@@ -145,7 +199,7 @@ class DiscordAnalyticsBot(commands.Bot):
                     await self.bigquery_service.update_message_details(details_data)
                 self.data_buffer.clear_message_data()
             else:
-                self.logger.logger.debug("No message data to process")
+                self.logger.logger.info("💌 Message update process completed - No data to load")
                 
         except Exception as e:
             self.logger.error("update messages task", e)
@@ -153,6 +207,8 @@ class DiscordAnalyticsBot(commands.Bot):
     @tasks.loop()
     async def update_voice_activity(self):
         """Update voice activity data in BigQuery."""
+        self.logger.logger.info("🎙️ Starting voice activity update process...")
+        
         try:
             voice_data = self.data_buffer.get_voice_data()
             
@@ -160,7 +216,7 @@ class DiscordAnalyticsBot(commands.Bot):
                 await self.bigquery_service.update_voice_activity(voice_data)
                 self.data_buffer.clear_voice_data()
             else:
-                self.logger.logger.debug("No voice activity data to process")
+                self.logger.logger.info("🎙️ Voice activity update process completed - No data to load")
                 
         except Exception as e:
             self.logger.error("update voice activity task", e)
@@ -168,6 +224,8 @@ class DiscordAnalyticsBot(commands.Bot):
     @tasks.loop()
     async def update_threads(self):
         """Update thread data in BigQuery."""
+        self.logger.logger.info("🧵 Starting thread data update process...")
+        
         try:
             thread_data = self.data_buffer.get_thread_data()
             
@@ -175,7 +233,7 @@ class DiscordAnalyticsBot(commands.Bot):
                 await self.bigquery_service.update_threads(thread_data)
                 self.data_buffer.clear_thread_data()
             else:
-                self.logger.logger.debug("No thread data to process")
+                self.logger.logger.info("🧵 Thread update process completed - No data to load")
                 
         except Exception as e:
             self.logger.error("update threads task", e)
@@ -183,6 +241,8 @@ class DiscordAnalyticsBot(commands.Bot):
     @tasks.loop()
     async def update_presence_logs(self):
         """Update presence logs in BigQuery."""
+        self.logger.logger.info("🟢 Starting presence logs update process...")
+        
         try:
             presence_data = self.data_buffer.get_presence_data()
             
@@ -190,7 +250,7 @@ class DiscordAnalyticsBot(commands.Bot):
                 await self.bigquery_service.update_presence_logs(presence_data)
                 self.data_buffer.clear_presence_data()
             else:
-                self.logger.logger.debug("No presence data to process")
+                self.logger.logger.info("🟢 Presence logs update process completed - No data to load")
                 
         except Exception as e:
             self.logger.error("update presence logs task", e)

@@ -1,9 +1,10 @@
 import pandas as pd
+import time
 from google.cloud import bigquery
 from config.bigquery_config import get_bigquery_client, SCHEMAS
 from config.settings import PROJECT_ID, DATASET_ID, get_table_name
 from config.logging_config import BotLogger
-from utils.helpers import log_execution_time, format_count
+from utils.helpers import format_count
 
 class BigQueryService:
     """Service for handling BigQuery operations."""
@@ -19,17 +20,41 @@ class BigQueryService:
         table_name = get_table_name(table_key)
         return f"{self.project_id}.{self.dataset_id}.{table_name}"
     
-    @log_execution_time
+    def _log_execution_time(self, operation: str, start_time: float, records_count: int, table_name: str):
+        """Log execution time with detailed information."""
+        duration = time.time() - start_time
+        minutes = int(duration // 60)
+        seconds = int(duration % 60)
+        
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
+        
+        record_str = format_count(records_count, "record")
+        
+        self.logger.logger.info(f"📊 {operation} completed: {record_str} loaded to '{table_name}' in {time_str}")
+    
     async def update_members(self, members_df: pd.DataFrame, updates_df: pd.DataFrame):
         """Update member data in BigQuery."""
-        if not members_df.empty:
-            await self._upsert_members(members_df)
+        start_time = time.time()
+        total_records = 0
         
-        if not updates_df.empty:
-            await self._update_member_fields(updates_df)
-        
-        if members_df.empty and updates_df.empty:
-            self.logger.no_data("member")
+        try:
+            if not members_df.empty:
+                await self._upsert_members(members_df)
+                total_records += len(members_df)
+            
+            if not updates_df.empty:
+                await self._update_member_fields(updates_df)
+                total_records += len(updates_df)
+            
+            if total_records > 0:
+                self._log_execution_time("Member data update", start_time, total_records, get_table_name('members'))
+                
+        except Exception as e:
+            self.logger.error("update members", e)
+            raise
     
     async def _upsert_members(self, members_df: pd.DataFrame):
         """Upsert member data using MERGE statement with safe parameters."""
@@ -57,8 +82,6 @@ class BigQueryService:
                 merge_query = self._build_safe_member_merge_query(table_id)
                 query_job = self.client.query(merge_query, job_config=job_config)
                 query_job.result()
-            
-            self.logger.data_processed("member", len(members_df), get_table_name('members'))
             
         except Exception as e:
             self.logger.error("upsert members", e)
@@ -97,29 +120,25 @@ class BigQueryService:
                 query_job.result()
                 processed_count += 1
             
-            if processed_count > 0:
-                self.logger.data_processed("member update", processed_count, get_table_name('members'))
-            
         except Exception as e:
             self.logger.error("update member fields", e)
             raise
     
-    @log_execution_time
     async def update_message_counts(self, message_df: pd.DataFrame):
         """Update message counts using merge operation."""
-        if message_df.empty:
-            self.logger.no_data("message count")
-            return
+        start_time = time.time()
         
-        await self._merge_aggregated_data(message_df, 'message_counts', 'message_count')
+        try:
+            await self._merge_aggregated_data(message_df, 'message_counts', 'message_count')
+            self._log_execution_time("Message counts update", start_time, len(message_df), get_table_name('message_counts'))
+            
+        except Exception as e:
+            self.logger.error("update message counts", e)
+            raise
     
-    @log_execution_time
     async def update_message_details(self, message_df: pd.DataFrame):
         """Update message details by appending to table."""
-        if message_df.empty:
-            self.logger.no_data("message detail")
-            return
-        
+        start_time = time.time()
         table_id = self._get_table_id('message_details')
         
         try:
@@ -136,28 +155,27 @@ class BigQueryService:
             )
             job.result()
             
-            self.logger.data_processed("message", len(message_df), get_table_name('message_details'))
+            self._log_execution_time("Message details update", start_time, len(message_df), get_table_name('message_details'))
             
         except Exception as e:
             self.logger.error("update message details", e)
             raise
     
-    @log_execution_time
     async def update_voice_activity(self, voice_df: pd.DataFrame):
         """Update voice activity using merge operation."""
-        if voice_df.empty:
-            self.logger.no_data("voice activity")
-            return
+        start_time = time.time()
         
-        await self._merge_aggregated_data(voice_df, 'voice_activity', 'duration_seconds')
+        try:
+            await self._merge_aggregated_data(voice_df, 'voice_activity', 'duration_seconds')
+            self._log_execution_time("Voice activity update", start_time, len(voice_df), get_table_name('voice_activity'))
+            
+        except Exception as e:
+            self.logger.error("update voice activity", e)
+            raise
     
-    @log_execution_time
     async def update_threads(self, thread_df: pd.DataFrame):
         """Update thread data by appending to table."""
-        if thread_df.empty:
-            self.logger.no_data("thread")
-            return
-        
+        start_time = time.time()
         table_id = self._get_table_id('threads')
         
         try:
@@ -171,29 +189,26 @@ class BigQueryService:
             )
             job.result()
             
-            self.logger.data_processed("thread", len(thread_df), get_table_name('threads'))
+            self._log_execution_time("Thread data update", start_time, len(thread_df), get_table_name('threads'))
             
         except Exception as e:
             self.logger.error("update threads", e)
             raise
     
-    @log_execution_time
     async def update_presence_logs(self, presence_df: pd.DataFrame):
         """Update presence logs by appending unique entries."""
-        if presence_df.empty:
-            self.logger.no_data("presence")
-            return
-        
-        # Remove duplicates by user_id
-        original_count = len(presence_df)
-        presence_df = presence_df.drop_duplicates(subset=['user_id'])
-        
-        if len(presence_df) < original_count:
-            self.logger.logger.debug(f"Removed {original_count - len(presence_df)} duplicate presence records")
-        
-        table_id = self._get_table_id('presence_logs')
+        start_time = time.time()
         
         try:
+            # Remove duplicates by user_id
+            original_count = len(presence_df)
+            presence_df = presence_df.drop_duplicates(subset=['user_id'])
+            
+            if len(presence_df) < original_count:
+                self.logger.logger.debug(f"Removed {original_count - len(presence_df)} duplicate presence records")
+            
+            table_id = self._get_table_id('presence_logs')
+            
             job_config = bigquery.LoadJobConfig(
                 schema=SCHEMAS['presence_logs'],
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND
@@ -204,7 +219,7 @@ class BigQueryService:
             )
             job.result()
             
-            self.logger.data_processed("presence log", len(presence_df), get_table_name('presence_logs'))
+            self._log_execution_time("Presence logs update", start_time, len(presence_df), get_table_name('presence_logs'))
             
         except Exception as e:
             self.logger.error("update presence logs", e)
@@ -237,10 +252,7 @@ class BigQueryService:
             # Clean up temporary table
             self.client.delete_table(temp_table_id, not_found_ok=True)
             
-            self.logger.data_processed(table_key.replace('_', ' '), len(df), get_table_name(table_key))
-            
         except Exception as e:
-            self.logger.error(f"merge {table_key} data", e)
             # Clean up temporary table on error
             self.client.delete_table(temp_table_id, not_found_ok=True)
             raise
