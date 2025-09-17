@@ -41,7 +41,7 @@ SERVICE_ACCOUNT_PATH = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 MEMBER_UPDATE_INTERVAL = int(os.getenv('MEMBER_UPDATE_INTERVAL', '60'))
 MESSAGE_UPDATE_INTERVAL = int(os.getenv('MESSAGE_UPDATE_INTERVAL', '60'))
 VOICE_UPDATE_INTERVAL = int(os.getenv('VOICE_UPDATE_INTERVAL', '60'))
-THREAD_UPDATE_INTERVAL = int(os.getenv('THREAD_UPDATE_INTERVAL', '720'))  # 12 hours
+THREAD_UPDATE_INTERVAL = int(os.getenv('THREAD_UPDATE_INTERVAL', '60'))  
 PRESENCE_UPDATE_INTERVAL = int(os.getenv('PRESENCE_UPDATE_INTERVAL', '1440'))  # 24 hours
 
 # Table prefix for environment separation (Optional)
@@ -60,4 +60,7 @@ DEFAULT_TABLES = {
 def get_table_name(table_key: str) -> str:
     """Get table name with optional environment prefix."""
     base_name = DEFAULT_TABLES[table_key]
-    return f"{TABLE_PREFIX}{base_name}" if TABLE_PREFIX else base_name
+    # CORREÇÃO: Adicionar underscore entre prefixo e nome da tabela
+    if TABLE_PREFIX:
+        return f"{TABLE_PREFIX}_{base_name}"
+    return base_name
