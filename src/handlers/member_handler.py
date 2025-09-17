@@ -1,16 +1,15 @@
 import discord
-import logging
 from datetime import datetime, timezone
 from config.settings import TARGET_SERVER_ID
+from config.logging_config import BotLogger
 from utils.helpers import format_roles
-
-logger = logging.getLogger(__name__)
 
 class MemberHandler:
     """Handler for Discord member events."""
     
     def __init__(self, data_buffer):
         self.data_buffer = data_buffer
+        self.logger = BotLogger(__name__)
     
     async def on_member_join(self, member: discord.Member):
         """Handle member join events."""
@@ -31,10 +30,13 @@ class MemberHandler:
             }
             
             await self.data_buffer.add_member(member_data)
-            logger.info(f"Member joined: {member.name} ({member.id})")
+            
+            # Friendly log message
+            bot_indicator = " [BOT]" if member.bot else ""
+            self.logger.logger.info(f"👋 New member joined: {member.display_name}{bot_indicator}")
             
         except Exception as e:
-            logger.error(f"Error processing member join for {member.id}: {e}")
+            self.logger.error(f"process member join for {member.display_name}", e, f"user {member.id}")
     
     async def on_member_remove(self, member: discord.Member):
         """Handle member leave events."""
@@ -51,10 +53,12 @@ class MemberHandler:
             }
             
             await self.data_buffer.add_member_update(update_data)
-            logger.info(f"Member left: {member.name} ({member.id})")
+            
+            # Friendly log message
+            self.logger.logger.info(f"👋 Member left: {member.display_name}")
             
         except Exception as e:
-            logger.error(f"Error processing member leave for {member.id}: {e}")
+            self.logger.error(f"process member leave for {member.display_name}", e, f"user {member.id}")
     
     async def on_user_update(self, before: discord.User, after: discord.User):
         """Handle user profile updates."""
@@ -67,6 +71,13 @@ class MemberHandler:
                     'updated_at': datetime.now(timezone.utc)
                 }
                 await self.data_buffer.add_member_update(update_data)
+                
+                # Log the name change
+                self.logger.user_activity(
+                    "changed name", 
+                    str(after.id), 
+                    f"from '{before.name}' to '{after.name}'"
+                )
             
         except Exception as e:
-            logger.error(f"Error processing user update for {after.id}: {e}")
+            self.logger.error(f"process user update for {after.name}", e, f"user {after.id}")

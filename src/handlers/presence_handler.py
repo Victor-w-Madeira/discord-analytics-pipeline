@@ -1,16 +1,14 @@
 import discord
-import logging
 from datetime import datetime, timezone
 from config.settings import TARGET_SERVER_ID
-
-logger = logging.getLogger(__name__)
+from config.logging_config import BotLogger
 
 class PresenceHandler:
     """Handler for Discord presence events."""
     
     def __init__(self, data_buffer):
         self.data_buffer = data_buffer
-
+        self.logger = BotLogger(__name__)
     
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         """Handle presence status changes."""
@@ -28,8 +26,16 @@ class PresenceHandler:
                 }
                 
                 await self.data_buffer.add_presence_log(presence_data)
-                logger.debug(f"User {after.name} ({after.id}) came online")
+                
+                self.logger.user_activity("came online", str(after.id))
+            
+            # Log other significant status changes (debug level)
+            elif before.status != after.status:
+                self.logger.user_activity(
+                    f"status changed", 
+                    str(after.id), 
+                    f"from {before.status} to {after.status}"
+                )
                 
         except Exception as e:
-            logger.error(f"Error processing presence update for {after.id}: {e}")
-            
+            self.logger.error(f"process presence update for {after.display_name}", e, f"user {after.id}")

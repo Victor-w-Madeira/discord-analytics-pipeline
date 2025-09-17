@@ -1,11 +1,9 @@
-import logging
 import pandas as pd
 from google.cloud import bigquery
 from config.bigquery_config import get_bigquery_client, SCHEMAS
 from config.settings import PROJECT_ID, DATASET_ID, get_table_name
-from utils.helpers import log_execution_time
-
-logger = logging.getLogger(__name__)
+from config.logging_config import BotLogger
+from utils.helpers import log_execution_time, format_count
 
 class BigQueryService:
     """Service for handling BigQuery operations."""
@@ -14,6 +12,7 @@ class BigQueryService:
         self.client = get_bigquery_client()
         self.project_id = PROJECT_ID
         self.dataset_id = DATASET_ID
+        self.logger = BotLogger(__name__)
     
     def _get_table_id(self, table_key: str) -> str:
         """Get full table ID with optional prefix."""
@@ -28,6 +27,9 @@ class BigQueryService:
         
         if not updates_df.empty:
             await self._update_member_fields(updates_df)
+        
+        if members_df.empty and updates_df.empty:
+            self.logger.no_data("member")
     
     async def _upsert_members(self, members_df: pd.DataFrame):
         """Upsert member data using MERGE statement with safe parameters."""
@@ -56,10 +58,10 @@ class BigQueryService:
                 query_job = self.client.query(merge_query, job_config=job_config)
                 query_job.result()
             
-            logger.info(f"Successfully updated {len(members_df)} members using safe parameters")
+            self.logger.data_processed("member", len(members_df), get_table_name('members'))
             
         except Exception as e:
-            logger.error(f"Error updating members: {e}")
+            self.logger.error("upsert members", e)
             raise
     
     async def _update_member_fields(self, updates_df: pd.DataFrame):
@@ -67,11 +69,12 @@ class BigQueryService:
         table_id = self._get_table_id('members')
         
         try:
+            processed_count = 0
             for _, row in updates_df.iterrows():
                 # Validate column (security whitelist)
                 allowed_columns = ['user_name', 'display_name', 'status', 'role', 'is_booster']
                 if row['column'] not in allowed_columns:
-                    logger.warning(f"Attempted to update non-whitelisted column: {row['column']}")
+                    self.logger.logger.warning(f"⚠️ Skipped update to non-whitelisted column: {row['column']}")
                     continue
                 
                 job_config = bigquery.QueryJobConfig(
@@ -82,7 +85,7 @@ class BigQueryService:
                     ]
                 )
                 
-                # Nome da coluna não pode ser parametrizado, mas foi validado acima
+                # Column name can't be parameterized, but was validated above
                 update_query = f"""
                 UPDATE `{table_id}`
                 SET {row['column']} = @new_value,
@@ -92,18 +95,20 @@ class BigQueryService:
                 
                 query_job = self.client.query(update_query, job_config=job_config)
                 query_job.result()
+                processed_count += 1
             
-            logger.info(f"Successfully updated {len(updates_df)} member fields using safe parameters")
+            if processed_count > 0:
+                self.logger.data_processed("member update", processed_count, get_table_name('members'))
             
         except Exception as e:
-            logger.error(f"Error updating member fields: {e}")
+            self.logger.error("update member fields", e)
             raise
     
     @log_execution_time
     async def update_message_counts(self, message_df: pd.DataFrame):
         """Update message counts using merge operation."""
         if message_df.empty:
-            logger.info("No message count data to update")
+            self.logger.no_data("message count")
             return
         
         await self._merge_aggregated_data(message_df, 'message_counts', 'message_count')
@@ -112,7 +117,7 @@ class BigQueryService:
     async def update_message_details(self, message_df: pd.DataFrame):
         """Update message details by appending to table."""
         if message_df.empty:
-            logger.info("No message detail data to update")
+            self.logger.no_data("message detail")
             return
         
         table_id = self._get_table_id('message_details')
@@ -131,17 +136,17 @@ class BigQueryService:
             )
             job.result()
             
-            logger.info(f"Successfully added {len(message_df)} message details")
+            self.logger.data_processed("message", len(message_df), get_table_name('message_details'))
             
         except Exception as e:
-            logger.error(f"Error updating message details: {e}")
+            self.logger.error("update message details", e)
             raise
     
     @log_execution_time
     async def update_voice_activity(self, voice_df: pd.DataFrame):
         """Update voice activity using merge operation."""
         if voice_df.empty:
-            logger.info("No voice activity data to update")
+            self.logger.no_data("voice activity")
             return
         
         await self._merge_aggregated_data(voice_df, 'voice_activity', 'duration_seconds')
@@ -150,7 +155,7 @@ class BigQueryService:
     async def update_threads(self, thread_df: pd.DataFrame):
         """Update thread data by appending to table."""
         if thread_df.empty:
-            logger.info("No thread data to update")
+            self.logger.no_data("thread")
             return
         
         table_id = self._get_table_id('threads')
@@ -166,21 +171,25 @@ class BigQueryService:
             )
             job.result()
             
-            logger.info(f"Successfully added {len(thread_df)} threads")
+            self.logger.data_processed("thread", len(thread_df), get_table_name('threads'))
             
         except Exception as e:
-            logger.error(f"Error updating threads: {e}")
+            self.logger.error("update threads", e)
             raise
     
     @log_execution_time
     async def update_presence_logs(self, presence_df: pd.DataFrame):
         """Update presence logs by appending unique entries."""
         if presence_df.empty:
-            logger.info("No presence data to update")
+            self.logger.no_data("presence")
             return
         
         # Remove duplicates by user_id
+        original_count = len(presence_df)
         presence_df = presence_df.drop_duplicates(subset=['user_id'])
+        
+        if len(presence_df) < original_count:
+            self.logger.logger.debug(f"Removed {original_count - len(presence_df)} duplicate presence records")
         
         table_id = self._get_table_id('presence_logs')
         
@@ -195,10 +204,10 @@ class BigQueryService:
             )
             job.result()
             
-            logger.info(f"Successfully added {len(presence_df)} presence logs")
+            self.logger.data_processed("presence log", len(presence_df), get_table_name('presence_logs'))
             
         except Exception as e:
-            logger.error(f"Error updating presence logs: {e}")
+            self.logger.error("update presence logs", e)
             raise
     
     async def _merge_aggregated_data(self, df: pd.DataFrame, table_key: str, aggregate_column: str):
@@ -228,10 +237,10 @@ class BigQueryService:
             # Clean up temporary table
             self.client.delete_table(temp_table_id, not_found_ok=True)
             
-            logger.info(f"Successfully merged {len(df)} records to {table_key}")
+            self.logger.data_processed(table_key.replace('_', ' '), len(df), get_table_name(table_key))
             
         except Exception as e:
-            logger.error(f"Error merging data to {table_key}: {e}")
+            self.logger.error(f"merge {table_key} data", e)
             # Clean up temporary table on error
             self.client.delete_table(temp_table_id, not_found_ok=True)
             raise

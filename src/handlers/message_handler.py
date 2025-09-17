@@ -1,16 +1,14 @@
-# src/handlers/message_handler.py
 import discord
-import logging
 from datetime import datetime, timezone
 from config.settings import TARGET_SERVER_ID
-
-logger = logging.getLogger(__name__)
+from config.logging_config import BotLogger
 
 class MessageHandler:
     """Handler for Discord message events."""
     
     def __init__(self, data_buffer):
         self.data_buffer = data_buffer
+        self.logger = BotLogger(__name__)
     
     async def on_message(self, message: discord.Message):
         """Handle message creation events."""
@@ -25,8 +23,17 @@ class MessageHandler:
         try:
             await self._process_message_count(message)
             await self._process_message_details(message)
+            
+            # Log user activity (debug level)
+            channel_name = getattr(message.channel, 'name', 'DM')
+            self.logger.user_activity(
+                "sent message", 
+                str(message.author.id), 
+                f"in #{channel_name}"
+            )
+            
         except Exception as e:
-            logger.error(f"Error processing message {message.id}: {e}")
+            self.logger.error(f"process message {message.id}", e, f"user {message.author.id}")
     
     async def _process_message_count(self, message: discord.Message):
         """Process message for counting purposes."""

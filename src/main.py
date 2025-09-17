@@ -1,27 +1,36 @@
 import asyncio
-import logging
+import os
 from bot import DiscordAnalyticsBot
 from config.settings import BOT_TOKEN
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-logger = logging.getLogger(__name__)
+from config.logging_config import setup_logging, BotLogger
 
 async def main():
     """Main entry point for the Discord Analytics Bot."""
+    
+    # Setup logging first
+    log_level = os.getenv('LOG_LEVEL', 'INFO')
+    use_colors = os.getenv('LOG_COLORS', 'true').lower() == 'true'
+    setup_logging(level=log_level, use_colors=use_colors)
+    
+    # Create main logger
+    logger = BotLogger(__name__)
+    
     try:
+        logger.logger.info("🚀 Starting Discord Analytics Bot...")
+        
         bot = DiscordAnalyticsBot()
         await bot.start(BOT_TOKEN)
+        
     except KeyboardInterrupt:
-        logger.info("Bot shutdown requested by user")
+        logger.logger.info("🛑 Bot shutdown requested by user")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error("start bot", e)
+        raise
     finally:
-        await bot.close()
+        if 'bot' in locals():
+            logger.logger.info("🔄 Cleaning up and shutting down...")
+            await bot.close()
+        logger.logger.info("👋 Discord Analytics Bot stopped")
 
 if __name__ == "__main__":
     asyncio.run(main())

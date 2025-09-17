@@ -1,6 +1,5 @@
 import discord
 import asyncio
-import logging
 from discord.ext import commands, tasks
 
 from config.settings import (
@@ -19,8 +18,7 @@ from handlers import (
 )
 from services.bigquery_service import BigQueryService
 from services.data_buffer import DataBuffer
-
-logger = logging.getLogger(__name__)
+from config.logging_config import BotLogger
 
 class DiscordAnalyticsBot(commands.Bot):
     """Main Discord bot class for analytics collection."""
@@ -33,6 +31,9 @@ class DiscordAnalyticsBot(commands.Bot):
         intents.message_content = True
         
         super().__init__(command_prefix='!', intents=intents)
+        
+        # Initialize logger
+        self.logger = BotLogger(__name__)
         
         # Initialize services
         self.bigquery_service = BigQueryService()
@@ -61,123 +62,135 @@ class DiscordAnalyticsBot(commands.Bot):
     
     async def on_ready(self):
         """Event triggered when bot is ready."""
-        logger.info(f'Bot connected as {self.user}')
+        self.logger.bot_ready(self.user.name, len(self.guilds))
         
         for guild in self.guilds:
-            logger.info(f'Connected to server: {guild.name} (ID: {guild.id})')
+            self.logger.guild_connected(guild.name, guild.id)
         
         # Log the configured intervals
-        logger.info(f"Task intervals configured:")
-        logger.info(f"  - Members: {MEMBER_UPDATE_INTERVAL} minutes")
-        logger.info(f"  - Messages: {MESSAGE_UPDATE_INTERVAL} minutes")
-        logger.info(f"  - Voice: {VOICE_UPDATE_INTERVAL} minutes")
-        logger.info(f"  - Threads: {THREAD_UPDATE_INTERVAL} minutes")
-        logger.info(f"  - Presence: {PRESENCE_UPDATE_INTERVAL} minutes")
+        self.logger.logger.info("⚙️ Task Configuration:")
+        intervals = [
+            ("Members", MEMBER_UPDATE_INTERVAL),
+            ("Messages", MESSAGE_UPDATE_INTERVAL), 
+            ("Voice Activity", VOICE_UPDATE_INTERVAL),
+            ("Threads", THREAD_UPDATE_INTERVAL),
+            ("Presence Logs", PRESENCE_UPDATE_INTERVAL)
+        ]
+        
+        for name, interval in intervals:
+            self.logger.logger.info(f"   • {name}: {interval} minutes")
         
         # Start periodic tasks
         await self._start_periodic_tasks()
     
     async def _start_periodic_tasks(self):
         """Start all periodic update tasks with staggered delays."""
-        logger.info("Starting periodic tasks...")
+        self.logger.logger.info("🔄 Starting periodic tasks...")
         
         # Start log cycle first
         self.log_update_cycle.change_interval(minutes=60)
         self.log_update_cycle.start()
-        logger.info("Started log_update_cycle")
+        self.logger.logger.debug("Started heartbeat log cycle")
         
-        # Wait 1 minute then start member updates
-        await asyncio.sleep(60)
-        self.update_members.change_interval(minutes=MEMBER_UPDATE_INTERVAL)
-        self.update_members.start()
-        logger.info(f"Started update_members with interval {MEMBER_UPDATE_INTERVAL} minutes")
+        # Stagger task starts to avoid BigQuery conflicts
+        tasks = [
+            ("update_members", MEMBER_UPDATE_INTERVAL, 60),
+            ("update_messages", MESSAGE_UPDATE_INTERVAL, 300),
+            ("update_voice_activity", VOICE_UPDATE_INTERVAL, 300),
+            ("update_threads", THREAD_UPDATE_INTERVAL, 300),
+            ("update_presence_logs", PRESENCE_UPDATE_INTERVAL, 300)
+        ]
         
-        # Wait 5 minutes then start message updates
-        await asyncio.sleep(300)  
-        self.update_messages.change_interval(minutes=MESSAGE_UPDATE_INTERVAL)
-        self.update_messages.start()
-        logger.info(f"Started update_messages with interval {MESSAGE_UPDATE_INTERVAL} minutes")
+        for task_name, interval, delay in tasks:
+            await asyncio.sleep(delay)
+            task = getattr(self, task_name)
+            task.change_interval(minutes=interval)
+            task.start()
+            self.logger.task_started(task_name, interval)
         
-        # Wait 5 minutes then start voice updates
-        await asyncio.sleep(300)
-        self.update_voice_activity.change_interval(minutes=VOICE_UPDATE_INTERVAL)
-        self.update_voice_activity.start()
-        logger.info(f"Started update_voice_activity with interval {VOICE_UPDATE_INTERVAL} minutes")
-        
-        # Wait 5 minutes then start thread updates
-        await asyncio.sleep(300)
-        self.update_threads.change_interval(minutes=THREAD_UPDATE_INTERVAL)
-        self.update_threads.start()
-        logger.info(f"Started update_threads with interval {THREAD_UPDATE_INTERVAL} minutes")
-        
-        # Wait 5 minutes then start presence updates
-        await asyncio.sleep(300)
-        self.update_presence_logs.change_interval(minutes=PRESENCE_UPDATE_INTERVAL)
-        self.update_presence_logs.start()
-        logger.info(f"Started update_presence_logs with interval {PRESENCE_UPDATE_INTERVAL} minutes")
-        
-        logger.info("All periodic tasks started successfully")
+        self.logger.logger.info("✅ All periodic tasks started successfully")
     
     @tasks.loop()
     async def log_update_cycle(self):
-        """Log periodic update cycle."""
-        logger.info("Periodic update cycle started")
+        """Log periodic heartbeat."""
+        self.logger.logger.debug("💓 Heartbeat - Bot is running normally")
     
     @tasks.loop()
     async def update_members(self):
         """Update member data in BigQuery."""
         try:
-            await self.bigquery_service.update_members(
-                self.data_buffer.get_members_data(),
-                self.data_buffer.get_member_updates()
-            )
-            self.data_buffer.clear_members_data()
+            members_data = self.data_buffer.get_members_data()
+            updates_data = self.data_buffer.get_member_updates()
+            
+            if not members_data.empty or not updates_data.empty:
+                await self.bigquery_service.update_members(members_data, updates_data)
+                self.data_buffer.clear_members_data()
+            else:
+                self.logger.logger.debug("No member data to process")
+                
         except Exception as e:
-            logger.error(f"Error in update_members: {e}")
+            self.logger.error("update members task", e)
     
     @tasks.loop()
     async def update_messages(self):
         """Update message data in BigQuery."""
         try:
-            await self.bigquery_service.update_message_counts(
-                self.data_buffer.get_message_counts()
-            )
-            await self.bigquery_service.update_message_details(
-                self.data_buffer.get_message_details()
-            )
-            self.data_buffer.clear_message_data()
+            counts_data = self.data_buffer.get_message_counts()
+            details_data = self.data_buffer.get_message_details()
+            
+            if not counts_data.empty or not details_data.empty:
+                if not counts_data.empty:
+                    await self.bigquery_service.update_message_counts(counts_data)
+                if not details_data.empty:
+                    await self.bigquery_service.update_message_details(details_data)
+                self.data_buffer.clear_message_data()
+            else:
+                self.logger.logger.debug("No message data to process")
+                
         except Exception as e:
-            logger.error(f"Error in update_messages: {e}")
+            self.logger.error("update messages task", e)
     
     @tasks.loop()
     async def update_voice_activity(self):
         """Update voice activity data in BigQuery."""
         try:
-            await self.bigquery_service.update_voice_activity(
-                self.data_buffer.get_voice_data()
-            )
-            self.data_buffer.clear_voice_data()
+            voice_data = self.data_buffer.get_voice_data()
+            
+            if not voice_data.empty:
+                await self.bigquery_service.update_voice_activity(voice_data)
+                self.data_buffer.clear_voice_data()
+            else:
+                self.logger.logger.debug("No voice activity data to process")
+                
         except Exception as e:
-            logger.error(f"Error in update_voice_activity: {e}")
+            self.logger.error("update voice activity task", e)
     
     @tasks.loop()
     async def update_threads(self):
         """Update thread data in BigQuery."""
         try:
-            await self.bigquery_service.update_threads(
-                self.data_buffer.get_thread_data()
-            )
-            self.data_buffer.clear_thread_data()
+            thread_data = self.data_buffer.get_thread_data()
+            
+            if not thread_data.empty:
+                await self.bigquery_service.update_threads(thread_data)
+                self.data_buffer.clear_thread_data()
+            else:
+                self.logger.logger.debug("No thread data to process")
+                
         except Exception as e:
-            logger.error(f"Error in update_threads: {e}")
+            self.logger.error("update threads task", e)
     
     @tasks.loop()
     async def update_presence_logs(self):
         """Update presence logs in BigQuery."""
         try:
-            await self.bigquery_service.update_presence_logs(
-                self.data_buffer.get_presence_data()
-            )
-            self.data_buffer.clear_presence_data()
+            presence_data = self.data_buffer.get_presence_data()
+            
+            if not presence_data.empty:
+                await self.bigquery_service.update_presence_logs(presence_data)
+                self.data_buffer.clear_presence_data()
+            else:
+                self.logger.logger.debug("No presence data to process")
+                
         except Exception as e:
-            logger.error(f"Error in update_presence_logs: {e}")
+            self.logger.error("update presence logs task", e)

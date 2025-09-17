@@ -1,14 +1,13 @@
 import discord
-import logging
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
+from config.logging_config import BotLogger
 
 class ThreadHandler:
     """Handler for Discord thread events."""
     
     def __init__(self, data_buffer):
         self.data_buffer = data_buffer
+        self.logger = BotLogger(__name__)
     
     async def on_thread_create(self, thread: discord.Thread):
         """Handle thread creation events."""
@@ -24,7 +23,12 @@ class ThreadHandler:
             }
             
             await self.data_buffer.add_thread(thread_data)
-            logger.info(f"Thread created: {thread.name} ({thread.id})")
+            
+            # Get parent channel name for better context
+            parent_channel = thread.parent
+            parent_name = parent_channel.name if parent_channel else "Unknown"
+            
+            self.logger.logger.info(f"🧵 New thread created: '{thread.name}' in #{parent_name}")
             
         except Exception as e:
-            logger.error(f"Error processing thread creation for {thread.id}: {e}")
+            self.logger.error(f"process thread creation for '{thread.name}'", e, f"thread {thread.id}")
