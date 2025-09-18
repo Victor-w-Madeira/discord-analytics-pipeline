@@ -10,6 +10,31 @@ class MessageHandler:
         self.data_buffer = data_buffer
         self.logger = BotLogger(__name__)
     
+    def _is_valid_message_content(self, content: str) -> bool:
+        """
+        Check if message content is valid for processing.
+        
+        Args:
+            content: Message content string
+            
+        Returns:
+            bool: True if content is valid, False otherwise
+        """
+        if content is None:
+            return False
+        
+        # Remove whitespace and check if empty
+        cleaned_content = content.strip()
+        if not cleaned_content:
+            return False
+        
+        # Optional: Add more filters here if needed
+        # For example, filter out messages with only special characters:
+        # if cleaned_content in ['', '​', '\u200b', '\u200c', '\u200d']:  # Zero-width characters
+        #     return False
+        
+        return True
+    
     async def on_message(self, message: discord.Message):
         """Handle message creation events."""
         # Filter by target server
@@ -18,6 +43,14 @@ class MessageHandler:
         
         # Skip bot messages
         if message.author.bot:
+            return
+        
+        # NOVO: Skip messages with empty or null content
+        if not self._is_valid_message_content(message.content):
+            self.logger.logger.debug(
+                f"⚠️ Skipped empty/null message from user {message.author.id} "
+                f"in channel {getattr(message.channel, 'name', 'Unknown')}"
+            )
             return
         
         try:
@@ -57,7 +90,7 @@ class MessageHandler:
             'user_id': str(message.author.id),
             'channel_id': channel_id,
             'thread_id': thread_id,
-            'message_content': message.content
+            'message_content': message.content.strip()  # Garante que não há espaços extras
         }
         
         await self.data_buffer.add_message_detail(message_data)
