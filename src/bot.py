@@ -51,7 +51,9 @@ class DiscordAnalyticsBot(commands.Bot):
     
     def _setup_event_handlers(self):
         """Setup all event handlers."""
-        self.add_listener(self.on_ready)
+        # CORRIGIDO: Removido self.add_listener(self.on_ready) - causa duplicidade
+        # O on_ready é automaticamente registrado pelo Discord.py quando definido como método da classe
+        
         self.add_listener(self.message_handler.on_message)
         self.add_listener(self.member_handler.on_member_join)
         self.add_listener(self.member_handler.on_member_remove)
