@@ -11,14 +11,22 @@ class PresenceHandler:
         self.logger = BotLogger(__name__)
     
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
-        """Handle presence status changes."""
+        """Handle presence status changes to detect daily logins."""
         # Filter by target server
         if after.guild.id != TARGET_SERVER_ID:
             return
         
         try:
-            # Detect transition from offline to online
-            if before.status == discord.Status.offline and after.status == discord.Status.online:
+            # Detect transition from offline to ANY active status
+            # This captures real logins regardless of initial status (online, idle, dnd)
+            was_offline = before.status == discord.Status.offline
+            is_now_active = after.status in [
+                discord.Status.online,
+                discord.Status.idle,
+                discord.Status.dnd
+            ]
+            
+            if was_offline and is_now_active:
                 presence_data = {
                     'logged_at': datetime.now(timezone.utc),  
                     'user_id': str(after.id),
@@ -27,12 +35,16 @@ class PresenceHandler:
                 
                 await self.data_buffer.add_presence_log(presence_data)
                 
-                self.logger.user_activity("came online", str(after.id))
+                self.logger.user_activity(
+                    "logged in", 
+                    str(after.id),
+                    f"status: {after.status}"
+                )
             
-            # Log other significant status changes (debug level)
+            # Log other status changes at debug level for monitoring
             elif before.status != after.status:
                 self.logger.user_activity(
-                    f"status changed", 
+                    "status changed", 
                     str(after.id), 
                     f"from {before.status} to {after.status}"
                 )
